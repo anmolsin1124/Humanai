@@ -139,7 +139,8 @@ export default function App() {
   const extractMemories = async (chatHistory: Message[]) => {
     setIsExtracting(true);
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+      const apiKey = (import.meta as any).env?.VITE_GEMINI_API_KEY || (typeof process !== 'undefined' ? process.env.GEMINI_API_KEY : '');
+      const ai = new GoogleGenAI({ apiKey: apiKey as string });
       const historyText = chatHistory.map(m => `${m.role}: ${m.content}`).join('\n');
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
@@ -173,7 +174,8 @@ ${historyText}`,
     setIsLoading(true);
 
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+      const apiKey = (import.meta as any).env?.VITE_GEMINI_API_KEY || (typeof process !== 'undefined' ? process.env.GEMINI_API_KEY : '');
+      const ai = new GoogleGenAI({ apiKey: apiKey as string });
       
       const dynamicSystemInstruction = `${SYSTEM_INSTRUCTION}
 
