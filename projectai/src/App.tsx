@@ -3,38 +3,201 @@ import { GoogleGenAI } from '@google/genai';
 import { Send } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
-const SYSTEM_INSTRUCTION = `You are an advanced Psychological Conversational AI with a relational memory system.
+const SYSTEM_INSTRUCTION = `You are an advanced Psychological Conversational AI with a relational memory system.`;
 
-You do not just respond.
-You remember, connect, and evolve with the user.
+// ✅ TYPES
+interface Message {
+  id: string;
+  role: 'user' | 'model';
+  content: string;
+}
 
-----------------------------------------
-🧠 MEMORY SYSTEM (CORE FEATURE)
-----------------------------------------
-You maintain 3 types of memory:
-1. Short-term Memory: Last 5–10 messages, used for immediate context
-2. Emotional Memory: Store user feelings (lonely, stressed, confused, motivated), detect recurring emotional states
-3. Pattern Memory: Track repeated behaviors (overthinking, avoidance, self-doubt, attachment)
+export default function App() {
+  const [messages, setMessages] = useState<Message[]>([
+    { id: 'init', role: 'model', content: 'hmm… kal se lekar ab tak kuch change feel hua ya same chal raha hai?' }
+  ]);
+  const [input, setInput] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [memories, setMemories] = useState<string[]>([]);
+  const [isExtracting, setIsExtracting] = useState(false);
 
-----------------------------------------
-🧩 MEMORY USAGE RULES
-----------------------------------------
-- Never dump memory randomly
-- Use it naturally in conversation
-Examples:
-“tumne pehle bhi bola tha ki tum easily attach ho jaate ho…”
-“ye same pattern phir se aa raha hai…”
-- Bring memory when: pattern repeats, user is stuck, emotional depth increases
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-----------------------------------------
-🧠 CONTEXT LINKING ENGINE
-----------------------------------------
-Connect past + present:
-“pehle tum is situation se escape karte the… ab tum usko face karne ki try kar rahe ho”
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
 
-----------------------------------------
-🧠 CONVERSATION CONTINUITY
-----------------------------------------
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages, isLoading]);
+
+  useEffect(() => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 120)}px`;
+    }
+  }, [input]);
+
+  // ✅ MEMORY EXTRACTION FIXED MODEL
+  const extractMemories = async (chatHistory: Message[]) => {
+    setIsExtracting(true);
+    try {
+      const apiKey =
+        (import.meta as any).env?.VITE_GEMINI_API_KEY ||
+        (typeof process !== 'undefined' ? process.env.GEMINI_API_KEY : '');
+
+      const ai = new GoogleGenAI({ apiKey: apiKey as string });
+
+      const historyText = chatHistory
+        .map((m) => `${m.role}: ${m.content}`)
+        .join('\n');
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-1.5-flash', // ✅ FIXED
+        contents: `Extract ONE psychological insight.\n\n${historyText}`,
+      });
+
+      const newMemory = response.text ? response.text().trim() : '';
+
+      if (newMemory && newMemory !== 'NONE' && !memories.includes(newMemory)) {
+        setMemories((prev) => [...prev, newMemory]);
+      }
+    } catch (e) {
+      console.error("Memory extraction failed", e);
+    } finally {
+      setIsExtracting(false);
+    }
+  };
+
+  // ✅ MAIN SEND FUNCTION FIXED
+  const handleSend = async () => {
+    if (!input.trim() || isLoading) return;
+
+    const userText = input.trim();
+    setInput('');
+
+    const newUserMsg: Message = {
+      id: Date.now().toString(),
+      role: 'user',
+      content: userText
+    };
+
+    // ✅ FIX: only add once
+    setMessages((prev) => [...prev, newUserMsg]);
+    setIsLoading(true);
+
+    try {
+      const apiKey =
+        (import.meta as any).env?.VITE_GEMINI_API_KEY ||
+        (typeof process !== 'undefined' ? process.env.GEMINI_API_KEY : '');
+
+      const ai = new GoogleGenAI({ apiKey: apiKey as string });
+
+      const contents = [
+        ...messages.map((m) => ({
+          role: m.role,
+          parts: [{ text: m.content }]
+        })),
+        { role: 'user', parts: [{ text: userText }] }
+      ];
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-1.5-pro', // ✅ FIXED
+        contents: contents,
+        config: {
+          systemInstruction: SYSTEM_INSTRUCTION,
+          temperature: 0.7,
+        }
+      });
+
+      // ✅ FIX: text() call
+      const modelText = response.text ? response.text() : '...';
+
+      const newModelMsg: Message = {
+        id: Date.now().toString(),
+        role: 'model',
+        content: modelText
+      };
+
+      // ✅ FIX: no duplicate
+      setMessages((prev) => [...prev, newModelMsg]);
+
+      // memory trigger
+      const userMessageCount =
+        messages.filter((m) => m.role === 'user').length + 1;
+
+      if (userMessageCount % 2 === 0) {
+        extractMemories([...messages, newUserMsg, newModelMsg]);
+      }
+
+    } catch (error) {
+      console.error("Error:", error);
+
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: Date.now().toString(),
+          role: 'model',
+          content: 'kuch connection issue lag raha hai...'
+        }
+      ]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    <div className="flex flex-col h-screen bg-[#0a0a0a] text-zinc-100">
+      
+      {/* CHAT */}
+      <main className="flex-1 overflow-y-auto p-4">
+        <div className="max-w-2xl mx-auto space-y-6">
+
+          {messages.map((msg) => (
+            <div
+              key={msg.id}
+              className={`flex ${
+                msg.role === 'user' ? 'justify-end' : 'justify-start'
+              }`}
+            >
+              <div className="bg-zinc-900 px-4 py-2 rounded-xl">
+                {msg.content}
+              </div>
+            </div>
+          ))}
+
+          {isLoading && <div>Typing...</div>}
+
+          <div ref={messagesEndRef} />
+        </div>
+      </main>
+
+      {/* INPUT */}
+      <div className="p-4">
+        <div className="max-w-2xl mx-auto flex gap-2">
+          <textarea
+            ref={textareaRef}
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                handleSend();
+              }
+            }}
+            className="flex-1 bg-zinc-900 p-3 rounded-xl"
+            placeholder="Type..."
+          />
+
+          <button onClick={handleSend}>
+            <Send size={18} />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+      }----------------------------------------
 - Conversations should feel ongoing
 - Not like separate chats
 Occasionally: “last time tum yaha tak aaye the… uske baad kya hua?”
